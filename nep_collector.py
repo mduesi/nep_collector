@@ -1,6 +1,7 @@
 import requests
 import json
-from datetime import datetime
+import datetime
+import pytz
 from csv import writer
 from urllib.parse import urljoin
 import sqlite3
@@ -10,7 +11,7 @@ class ConfigurationHelper:
     # Placeholder values
     Username = "user@example.com"
     Password = "password123"
-    SerialNumber = "12345678"
+    SerialNumber = "33c8efe0"
 
 def fetch_token(email, password):
     url = "https://nep.nepviewer.com/pv_monitor/appservice/login"
@@ -54,7 +55,7 @@ def get_daily_power_consumption(sn):
         max_watts_by_time = {}
         for item in data:
             if item:
-                date_time = datetime.fromtimestamp(item[0] / 1000)
+                date_time = datetime.datetime.fromtimestamp(item[0] / 1000)
                 date_time = date_time.replace(microsecond=0)
                 watt = int(item[1])
                 if date_time not in max_watts_by_time or watt > max_watts_by_time[date_time]:
@@ -85,6 +86,33 @@ def remove_unwanted_duplicates(metrics):
     
     return metrics  # Return the modified list
 
+def fetch_current_status(serialNumber):
+    # Get the current timezone
+    current_timezone = pytz.timezone('Europe/Berlin')  # replace 'Europe/Berlin' with your timezone
+
+    url = f"https://user.nepviewer.com/pv_monitor/proxy/status/{serialNumber}/0/2/"
+    print (f"Fetching data from: {url}")
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = json.loads(response.text)
+        now = data.get("now")
+        lastupdate_stamp = int(data.get("LastUpDate_Stamp"))
+        if lastupdate_stamp:
+            # Convert the UNIX timestamp to a datetime object in UTC
+            utc_datetime = datetime.datetime.utcfromtimestamp(int(lastupdate_stamp))
+            utc_datetime = utc_datetime.replace(tzinfo=pytz.utc)  # set UTC timezone
+
+            # Convert UTC datetime to the target timezone
+            # local_datetime = utc_datetime.astimezone(current_timezone)
+            local_datetime = utc_datetime.replace(microsecond=0)
+            return now, local_datetime
+        else:
+            print("Failed to get a valid timestamp from the data")
+            return None, None
+    else:
+        print(f"Request failed with status code {response.status_code}")
+        return None, None
+        
 
 
 def create_connection(db_file):
@@ -161,6 +189,8 @@ def main():
         cleaned_metrics = remove_unwanted_duplicates(data)
         save_metrics_to_db('metrics.db', cleaned_metrics)
         print("Data fetched:", cleaned_metrics)
+        now, localtime = fetch_current_status(sn)
+        print(f"Now: {now}, Local Time: {localtime}")
     else:
         print("Failed to log in.")
 
